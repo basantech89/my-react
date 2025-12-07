@@ -95,18 +95,34 @@ function updateDom(dom, prevProps, nextProps) {
 		});
 }
 
+function commitDeletion(fiber, domParent) {
+	if (fiber.dom) {
+		domParent.removeChild(fiber.dom);
+	} else {
+		commitDeletion(fiber.child, domParent);
+	}
+}
+
 function commitWork(fiber) {
 	if (!fiber) {
 		return;
 	}
 
-	const domParent = fiber.parent.dom;
+	console.log("fiber", fiber);
+
+	let domParentFiber = fiber.parent;
+	while (!domParentFiber.dom) {
+		domParentFiber = domParentFiber.parent;
+	}
+
+	const domParent = domParentFiber.dom;
+
 	if (fiber.effectTag === "PLACEMENT" && fiber.dom != null) {
 		domParent.appendChild(fiber.dom);
 	} else if (fiber.effectTag === "UPDATE" && fiber.dom != null) {
 		updateDom(fiber.dom, fiber.alternate.props, fiber.props);
 	} else if (fiber.effectTag === "DELETION") {
-		domParent.removeChild(fiber.dom);
+		commitDeletion(fiber, domParent);
 	}
 
 	commitWork(fiber.child);
@@ -114,7 +130,11 @@ function commitWork(fiber) {
 }
 
 function commitRoot() {
+	console.log("deletions", deletions);
+
 	deletions.forEach(commitWork);
+
+	console.log("wip root", wipRoot);
 
 	commitWork(wipRoot.child);
 	currentRoot = wipRoot;
@@ -174,13 +194,26 @@ function reconcileChildren(wipFiber, elements) {
 	}
 }
 
-function performUnitOfWork(fiber) {
+function updateFunctionComponent(fiber) {
+	const children = [fiber.type(fiber.props)];
+	reconcileChildren(fiber, children);
+}
+
+function updateHostComponent(fiber) {
 	if (!fiber.dom) {
 		fiber.dom = createDom(fiber);
 	}
 
-	const elements = fiber.props.children;
-	reconcileChildren(fiber, elements);
+	reconcileChildren(fiber, fiber.props.children);
+}
+
+function performUnitOfWork(fiber) {
+	const isFunctionComponent = fiber.type instanceof Function;
+	if (isFunctionComponent) {
+		updateFunctionComponent(fiber);
+	} else {
+		updateHostComponent(fiber);
+	}
 
 	if (fiber.child) {
 		return fiber.child;

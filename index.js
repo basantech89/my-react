@@ -1,12 +1,12 @@
 import React from "./my-react";
 
-const element = (
-	<div id="foo">
-		<a href="/">bar</a>
-		<b />
-		<p>Some para 2</p>
-	</div>
-);
+function App(props) {
+	return <h1>Hi {props.name}</h1>;
+}
+
+const element = <App name="Basant" />;
+
+// console.log("element", element.type(element.props));
 
 const container = document.getElementById("root");
 React.render(element, container);
