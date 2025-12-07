@@ -26,12 +26,7 @@ function createDom(fiber) {
 			? document.createTextNode("")
 			: document.createElement(fiber.type);
 
-	const isProperty = (key) => key !== "children";
-	Object.keys(fiber.props)
-		.filter(isProperty)
-		.forEach((name) => {
-			dom[name] = fiber.props[name];
-		});
+	updateDom(dom, {}, fiber.props);
 
 	return dom;
 }
@@ -108,8 +103,6 @@ function commitWork(fiber) {
 		return;
 	}
 
-	console.log("fiber", fiber);
-
 	let domParentFiber = fiber.parent;
 	while (!domParentFiber.dom) {
 		domParentFiber = domParentFiber.parent;
@@ -130,15 +123,45 @@ function commitWork(fiber) {
 }
 
 function commitRoot() {
-	console.log("deletions", deletions);
-
 	deletions.forEach(commitWork);
 
-	console.log("wip root", wipRoot);
-
 	commitWork(wipRoot.child);
+
+	// Run effects after commit
+	runEffects(wipRoot.child);
+
 	currentRoot = wipRoot;
 	wipRoot = null;
+}
+
+function runEffects(fiber) {
+	if (!fiber) {
+		return;
+	}
+
+	// Run cleanup functions from previous render
+	if (fiber.hooks) {
+		fiber.hooks.forEach((hook) => {
+			if (hook.cleanup) {
+				hook.cleanup();
+			}
+		});
+	}
+
+	// Run new effects and store cleanup functions
+	if (fiber.hooks) {
+		fiber.hooks.forEach((hook) => {
+			if (hook.effect) {
+				const cleanup = hook.effect();
+				if (typeof cleanup === "function") {
+					hook.cleanup = cleanup;
+				}
+			}
+		});
+	}
+
+	runEffects(fiber.child);
+	runEffects(fiber.sibling);
 }
 
 function reconcileChildren(wipFiber, elements) {
@@ -194,9 +217,68 @@ function reconcileChildren(wipFiber, elements) {
 	}
 }
 
+let wipFiber = null;
+let hookIndex = null;
+
 function updateFunctionComponent(fiber) {
+	wipFiber = fiber;
+	hookIndex = 0;
+	wipFiber.hooks = [];
+
 	const children = [fiber.type(fiber.props)];
 	reconcileChildren(fiber, children);
+}
+
+function useState(initial) {
+	const oldHook = wipFiber.alternate?.hooks?.[hookIndex];
+	const hook = { state: oldHook ? oldHook.state : initial, queue: [] };
+
+	const actions = oldHook ? oldHook.queue : [];
+
+	actions.forEach((action) => {
+		hook.state = action(hook.state);
+	});
+
+	const setState = (action) => {
+		hook.queue.push(action);
+
+		wipRoot = {
+			dom: currentRoot.dom,
+			props: currentRoot.props,
+			alternate: currentRoot,
+		};
+
+		nextUnitOfWork = wipRoot;
+		deletions = [];
+	};
+
+	wipFiber.hooks.push(hook);
+	hookIndex++;
+
+	return [hook.state, setState];
+}
+
+function useEffect(callback, deps) {
+	const oldHook = wipFiber.alternate?.hooks?.[hookIndex];
+
+	const hasChanged =
+		!oldHook ||
+		!deps ||
+		!oldHook.deps ||
+		deps.some((dep, i) => dep !== oldHook.deps[i]);
+
+	const hook = {
+		deps,
+		cleanup: oldHook?.cleanup,
+	};
+
+	if (hasChanged) {
+		// Schedule the effect to run after commit
+		hook.effect = callback;
+	}
+
+	wipFiber.hooks.push(hook);
+	hookIndex++;
 }
 
 function updateHostComponent(fiber) {
@@ -245,6 +327,6 @@ function workLoop(deadline) {
 
 requestIdleCallback(workLoop);
 
-const React = { createElement, render };
+const React = { createElement, render, useState, useEffect };
 
 export default React;
