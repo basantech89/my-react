@@ -4,6 +4,7 @@ const element = (
 	<div id="foo">
 		<a href="/">bar</a>
 		<b />
+		<p>Some para</p>
 	</div>
 );
 
